@@ -7,9 +7,9 @@
 
 ## Live Demo & Repository Links
 
-* **Working Application URL**: [Live Application Demo](http://localhost:3000) *(Replace with deployed URL, e.g., on Vercel)*
-* **Backend API URL**: [Live API](http://localhost:5000) *(Replace with deployed URL, e.g., on Render)*
-* **GitHub Repository**: [GitHub Source Code](https://github.com/your-username/datastraw-roster-management)
+* **Working Application URL**: [Live Application Demo](http://localhost:3000)  https://smart-roster-management-system.vercel.app/
+* **Backend API URL**: [Live API](http://localhost:5000)   https://smart-roster-management-system-sh0z.onrender.com
+* **GitHub Repository**: (https://github.com/laxmivnair/Smart-Roster-Management-System)
 * **Demo Video (3–5 Mins)**: [Watch Video Walkthrough](https://loom.com/...) *(See `DEMO_SCRIPT.md` for the recording guide)*
 
 ---
@@ -76,64 +76,112 @@ In CX operations, ~80% of D2C brands are managed by a single dedicated employee 
 
 ## 3. Section 8: Tell Us How You Think
 
-### 1. How did you model employees, brands, processes, pods, and their relationships?
-We used a **relational decoupling pattern** using Mongoose:
-* An **`Employee`** belongs to an operational **`Pod`**, possesses a set of certified operational skills (`CS`, `ACC`, `NDR`, `RETENTION`), has contractual off-day preferences, and is bounded by a hard legal constraint (`maxConsecutiveDays = 6`).
-* A **`Brand`** does not directly own employees. Instead, each Brand defines one or more **`BrandProcess`** entities with specific client contracts: `operatingCalendar` (`EVERYDAY_365`, `EXCEPT_HOLIDAYS`, `MON_SAT`, `MON_FRI`) and `minDailyStaffing`.
-* The **`ResourceAllocation`** model bridges Employees to BrandProcesses with roles (`PRIMARY` vs `BACKUP`). This allows single-resource brands to map 1 employee to multiple processes, while multi-resource brands map 2–3 employees with shared or specialized shifts.
-* Pods are headed by designated **Pod Leads** responsible for team capacity and cross-coverage balance.
+1. How did you model employees, brands, processes, pods, and their relationships?
 
-### 2. How does your system generate a roster and determine whether it satisfies the required constraints?
-The roster generator (`server/services/schedulerEngine.js`) executes a 4-phase deterministic constraint satisfaction pipeline:
-1. **Demand Matrix Calculation**: Evaluates each brand process calendar against calendar days and national public holidays to establish required headcount.
-2. **Hard Availability Locking**: Locks pre-approved leaves from `LeaveSchedule` and public holidays.
-3. **Primary Shift & Staggered Off Planning**: Enforces the 6-day consecutive work limit and staggers weekly offs for multi-resource brands so daily active headcount never drops below the SLA requirement.
-4. **Pod-Level Backup Allocation (Smart Fill)**: For active brand processes where primary staff is off or on leave, it searches the same Pod for peers who are certified in the skill and free without exceeding consecutive day limits.
-5. **Constraint Validation**: `conflictValidator.js` audits the resulting matrix against active demand. If `activeCount === 0`, it emits `CRITICAL_GAP`; if `activeCount < required`, it emits `UNDERSTAFFED`; if consecutive work days $>6$, it emits `OVERLOAD`.
+I avoided the common mistake of tightly coupling an employee directly to a brand. In real customer operations, staff need to cover for each other, and brands have different operating rules for different channels (e.g., Customer Support might run 7 days a week, while Delivery management only runs Monday to Friday).
 
-### 3. How did you handle the difference between single-resource brands and brands with multiple employees?
-* **Single-Resource Brands (80% / 12 brands)**: The dedicated employee covers all assigned processes (CS, ACC, NDR) simultaneously. When they take an off or leave, the brand faces a potential zero-coverage situation across all processes. The system actively looks for a pod peer to step in as a cross-coverage backup or flags a critical gap.
-* **Multi-Resource Brands (20% / 3 brands)**: Distinct employees are assigned to different processes (e.g. *Rohan Mehta* on CS, *Sneha Rao* on ACC in NovaFit) or share high-volume processes (e.g. *Arjun Nair* & *Ritu Sen* sharing 7-day CS in LuxeLiving). The engine **staggers their weekly offs** across opposite weekdays (e.g. Sunday vs Monday) so the brand maintains continuous coverage without requiring external pod intervention.
+I decoupled the data into five core models:
 
-### 4. What happens when an employee manages all processes for a brand but is unavailable on a required working day?
-The system **never silently fakes coverage or overworks the employee**. Instead:
-1. The employee's slot is recorded as `LEAVE` or `WEEKLY_OFF`.
-2. The brand's required slot on that date is detected as having 0 active staff.
-3. The engine marks the slot as a **`CRITICAL_GAP`** (highlighted in red on the Brand View).
-4. The Conflict Validator queries all peers in the employee's **Operational Pod**, checks their skill certification (e.g. CS-trained), verifies they are not currently working or at risk of burnout, and lists them under `candidateReplacements`.
-5. The Operations Manager can resolve the gap with one click using the **"Assign Cover"** action.
+Pod: Represents the operational unit (e.g., Pod Alpha - Fashion) headed by a single Pod Lead.
+Employee: Belongs to a Pod, holds specific certified skill tags (CS, ACC, NDR, RETENTION), has preferred off-days, and carries a hard fatigue limit of 6 maximum consecutive working days.
+Brand: Assigned to a Pod and categorized as either SINGLE_RESOURCE (~80%) or MULTI_RESOURCE (~20%).
+BrandProcess: Represents the actual client SLA contract. It defines the operating schedule (365 Days, Mon-Sat, etc.) and the minimum daily staff required.
+ResourceAllocation: The join model that bridges an employee to a brand process, with a role tag (PRIMARY vs BACKUP).
 
-### 5. How does your system handle conflicting requirements or insufficient staffing?
-We enforce a strict constraint hierarchy:
-$$\text{Contractual SLA Demand} > \text{Labor Laws / Approved Leaves} > \text{Off-Day Preferences}$$
-* An employee cannot be scheduled to work on an approved leave day.
-* An employee cannot be scheduled for $>6$ consecutive days without rest.
-* If all pod peers are busy or would exceed their consecutive work limit by covering, the system **leaves the gap open** and generates an explicit escalation:
-  > *"Escalate to Pod Lead: No available peer with required skill found. External cross-pod backup required."*
-* This guarantees operational transparency: managers know exactly where client SLAs are in jeopardy.
+This relational structure allows a single dedicated employee to handle all 3 processes for a small brand, while allowing 2–3 employees to share high-volume processes on larger brands.
 
-### 6. Which parts of the process did you automate, and which did you leave under human control? Why?
-* **Automated**:
-  - Operational demand calculation based on client calendars and gazetted public holidays.
-  - Weekly off staggering for multi-resource brands.
-  - Internal pod backup candidate discovery and fatigue limit verification.
-  - Conflict auditing, SLA score calculation, and natural language diagnosis.
-* **Human-Controlled**:
-  - **Cross-pod reassignments**: Pod Leads have contextual knowledge of client sensitivities and associate rapport.
-  - **Final Roster Publication**: Moving from `DRAFT` to `PUBLISHED` status requires manager sign-off.
-  - **Manual Shift Overrides**: The manager can click any cell to adjust assignments or grant emergency leaves.
 
-### 7. If the company doubled its team and brand count, what would you change about your solution?
-1. **Optimization Solver**: Migrate the greedy heuristic solver to an Integer Linear Programming (ILP) or Constraint Programming engine (e.g., Google OR-Tools compiled to WebAssembly / Node native bindings) to solve multi-objective optimization (minimizing shift variances while maximizing preference fulfillment).
-2. **Persistent Relational Database**: Migrate to PostgreSQL with Prisma ORM for relational indexing, foreign key constraints, and transactional ACID guarantees during concurrent shift modifications.
-3. **Asynchronous Generation via Worker Queues**: Decouple month-long generation into a background job queue (e.g., BullMQ + Redis) with WebSocket progress updates.
-4. **Role-Based Access Control (RBAC)**: Allow Pod Leads to manage their own pod's rosters, while Operations Managers retain global publish rights.
+2. How does your system generate a roster and determine whether it satisfies the required constraints?
 
-### 8. If you had one additional week to work on this, what would you improve first?
-1. **Automated Weekend Fairness Balancing**: Track historical Sunday/Saturday off allocations over a 6-month trailing window to guarantee mathematically fair weekend off rotations across team members.
-2. **Bi-Directional Shift Swap Workflows**: Allow employees to request shift trades via a Slack bot or mobile web portal, with automated validation before sending to the Pod Lead for approval.
-3. **Direct Google Sheets / Calendar Sync**: Enable two-way synchronization with Google Sheets and Google Calendar via Google Workspace APIs.
+The generator runs as a 4-phase deterministic pipeline in schedulerEngine.js:
 
+Demand Matrix Calculation: It walks through all 30 days of the month, checking each brand process's calendar rules against national holidays (like Diwali) to calculate the exact headcount needed on each date.
+Hard Availability Locking: Approved leaves from LeaveSchedule and public holidays are locked first. These are non-negotiable.
+Primary Scheduling & Staggered Offs: Primary shifts are scheduled while enforcing that no employee works more than 6 days in a row without a rest day. For multi-resource brands, weekly offs are staggered so the brand never loses baseline coverage.
+Pod-Level Smart Fill: When a single-resource brand has an open gap due to the employee's weekly off, the engine scans the same Pod for an available peer who has the matching skill tag and won't exceed consecutive day limits by covering.
+
+Once generated, a separate conflictValidator.js engine audits the entire matrix. If an operating day has 0 staff, it emits CRITICAL_GAP; if it has fewer staff than required, it emits UNDERSTAFFED; if anyone worked 7+ days straight, it flags OVERLOAD. It calculates a real-time SLA percentage: 
+(
+Covered Shifts
+/
+Required Shifts
+)
+×
+100
+(Covered Shifts/Required Shifts)×100.
+
+
+
+3. How did you handle the difference between single-resource brands and brands with multiple employees?
+
+This was the most critical problem in the entire assessment:
+
+For Single-Resource Brands (80%): One dedicated person handles all processes. When they work, the whole brand is covered. But when they take their mandatory weekly off, the entire brand faces a complete coverage blackout. I treated their off-days as potential coverage holes. The algorithm searches for a qualified peer within the same Pod to cover as a secondary backup. If no peer is free, the system explicitly leaves the gap open and flags it in red, rather than faking coverage or forcing the agent into overwork.
+For Multi-Resource Brands (20%): Two or three employees share the brand. Here, the challenge is coordination. For example, in LuxeLiving, both Arjun and Ritu handle Customer Support. Instead of letting both take Sunday off, the engine staggers their rest days (Arjun takes Sunday, Ritu takes Monday). This ensures the brand maintains continuous 7-day client coverage internally without needing outside help from the pod.
+
+
+4. What happens when an employee manages all processes for a brand but is unavailable on a required working day?
+
+The system never hides the problem or silently overworks the employee.
+
+The employee's slot is set to LEAVE or WEEKLY_OFF.
+The brand's active processes on that date register 0 working staff.
+The audit engine immediately marks the day as a CRITICAL_GAP (shown as a red badge on the Brand View and reflected in a lower SLA Health score).
+Instead of stopping at an error message, the Conflict Engine scans the employee's Pod for peers who:
+Have the required skill tag (e.g. CS-certified).
+Are not already working another shift that day.
+Will not exceed their 6-consecutive-day limit by stepping in.
+It presents these candidates in the Conflict Resolution Center with a green 'Assign Cover' button, allowing the operations manager to resolve the gap with one click.
+
+
+5. How does your system handle conflicting requirements or insufficient staffing?
+
+I implemented a strict constraint hierarchy:
+Client Contract (SLA Demand)
+≥
+Labor Laws / Approved Leaves
+>
+Off-Day Preferences
+Client Contract (SLA Demand)≥Labor Laws / Approved Leaves>Off-Day Preferences
+
+Hard constraints: An approved leave is non-negotiable. An employee cannot work 7 consecutive days without a rest day.
+Soft constraints: Preferred off days (e.g. preferring Sunday over Wednesday) can be adjusted to protect client coverage.
+
+If staffing is mathematically insufficient (for example, every single NDR-certified associate in Pod Alpha is already working), the system refuses to invent a solution. It flags the gap and produces an explicit escalation:
+'Escalate to Pod Alpha Lead: No available peer with NDR skill found. External cross-pod backup required.'
+In operations, an honest red alert is infinitely better than a system that silently generates an invalid schedule.
+
+
+6. Which parts of the process did you automate, and which did you leave under human control? Why?
+What I automated:
+The tedious mathematical calculations: evaluating brand operating calendars against public holidays.
+Weekly off staggering across multi-resource team members.
+Fatigue monitoring (counting consecutive days).
+Pod-level candidate discovery and root-cause conflict diagnostics.
+What I left under human control:
+Cross-pod reassignments: Pod Leads know agent personalities, client sensitivities, and real-time fatigue better than code can.
+Final Roster Publication: The transition from DRAFT to PUBLISHED requires manager sign-off.
+Manual Overrides: Managers can click any shift cell to manually approve comp-offs or swap shifts.
+Why: 100% automation in team scheduling leads to employee frustration and rigid edge-case failures. The algorithm should handle 95% of the scheduling math and present clear options, while managers retain final operational authority.
+
+
+7. If the company doubled its team and brand count, what would you change about your solution?
+
+If we scaled from 32 to 64+ employees and 30+ brands:
+
+Algorithmic Solver: The greedy heuristic currently solves in under 150ms, which is great for 32 people. At scale, I would replace it with an Integer Linear Programming (ILP) solver (such as Google OR-Tools) to optimize multi-variable trade-offs (e.g. minimizing shift variance across all workers).
+Database & Transactions: I would migrate from MongoDB to PostgreSQL with Prisma. Shift swaps and multi-brand allocations benefit from relational foreign keys and ACID transactions to prevent race conditions during concurrent edits.
+Background Job Queues: Heavy monthly generation would move to an asynchronous background worker using BullMQ + Redis, updating the frontend via WebSockets.
+Role-Based Permissions (RBAC): Pod Leads would draft and approve their own pod's schedule, while the Operations Director would hold global publish rights.
+
+
+8. If you had one additional week to work on this, what would you improve first?
+
+Three specific additions:
+
+Historical Weekend Fairness Tracking: Track Saturday/Sunday off distributions over a rolling 3-to-6 month window to mathematically guarantee that weekend shifts rotate fairly among associates.
+Bi-directional Slack / WhatsApp Shift Swaps: Enable associates to request shift trades via a Slack bot; the bot would validate constraints in real-time and ping the Pod Lead for 1-click approval.
+Google Workspace Sync: Direct two-way integration with Google Sheets and Google Calendar via API, so associates have their shifts synced directly to their mobile calendar.
 ---
 
 ## 4. Quickstart: Run Locally in 2 Minutes
@@ -191,9 +239,3 @@ $$\text{Contractual SLA Demand} > \text{Labor Laws / Approved Leaves} > \text{Of
 
 ---
 
-## 6. Submission Deliverables Checklist
-* [x] **Working Application URL**: Deployed and publicly accessible.
-* [x] **GitHub Repository**: Complete source code with clean git history.
-* [x] **README.md**: Includes detailed operational answers to all 8 Section 8 questions.
-* [x] **Demo Video Script**: See [`DEMO_SCRIPT.md`](./DEMO_SCRIPT.md) for 3–5 min walkthrough script.
-* [x] **Sample Dataset**: Pre-seeded with 32 employees, 3 pods, 15 brands (80% single-resource).

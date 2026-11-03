@@ -1,0 +1,20 @@
+{
+  "name": "datastraw-roster-management",
+  "version": "1.0.0",
+  "description": "Smart Roster Management System for DataStraw Assessment",
+  "scripts": {
+    "seed": "npm run seed --prefix server",
+    "server": "npm start --prefix server",
+    "client": "npm run dev --prefix client",
+    "build": "npm run build --prefix client",
+    "test": "npm test --prefix server"
+  },
+  "keywords": [
+    "roster-management",
+    "sla-scheduling",
+    "datastraw",
+    "mern"
+  ],
+  "author": "",
+  "license": "ISC"
+}

@@ -10,7 +10,7 @@
 * **Working Application URL**: [Live Application Demo](http://localhost:3000)  https://smart-roster-management-system.vercel.app/
 * **Backend API URL**: [Live API](http://localhost:5000)   https://smart-roster-management-system-sh0z.onrender.com
 * **GitHub Repository**: (https://github.com/laxmivnair/Smart-Roster-Management-System)
-* **Demo Video (3–5 Mins)**: [Watch Video Walkthrough](https://loom.com/...) *(See `DEMO_SCRIPT.md` for the recording guide)*
+* **Demo Video (3–5 Mins)**: https://drive.google.com/file/d/1EF9u1xF0UtvH2zxpwtw9N3JXI-cUJtCx/view?usp=sharing
 
 ---
 
